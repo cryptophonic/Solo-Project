@@ -39,9 +39,12 @@ data Player = Black | White
 data Direction = DirUpLeft | DirUp | DirUpRight | DirRight | 
                  DirDownRight | DirDown | DirDownLeft | DirLeft
     deriving (Show, Eq)
+    
+data GameState = WhiteWon | BlackWon | Tie | InProgress
 
 data Game = Game { 
     board :: Board
+    , state :: GameState
     , lastMove :: Move       -- Necessary for stateful en-passant moves
 }
 
@@ -55,12 +58,12 @@ _RANKS_ = [1..8]
 _START_GAME_ :: [String]
 _START_GAME_ = reverse [   
                    "rnbqkbnr"
-                 , "pppp.ppp"
+                 , "pppppppp"
                  , "........"
-                 , "....p..."
-                 , "....P..."
                  , "........"
-                 , "PPPP.PPP"
+                 , "........"
+                 , "........"
+                 , "PPPPPPPP"
                  , "RNBQKBNR"
                ]
                
