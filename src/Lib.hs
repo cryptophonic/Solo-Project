@@ -12,25 +12,24 @@ type IndexCoord = (Int, Int)       -- IndexCoord is used internally to index int
                                    -- the actual board lists but is never exposed
                                    -- to the outside world
 
--- Returns a tuple of zero-based indices in the range [0..7] for a coordinate,
--- or Nothing if the coordinate is not valid
-toIndices :: Coord -> Maybe IndexCoord
-toIndices (Coord file rank)
-    | not (elem file ['a'..'h'])   = Nothing
-    | rank < 1 || rank > 8         = Nothing 
-    | otherwise                    = Just (ord file - 97, rank - 1)
+-- Returns a tuple of zero-based indices in the range [0..7] for a coordinate
+toIndices :: Coord -> IndexCoord
+toIndices (Coord file rank) = (ord file - 97, rank - 1)
+    
+isValidCoord :: Coord -> Bool
+isValidCoord (Coord file rank)
+    | not (elem file ['a'..'h'])   = False
+    | not (elem rank [1..8])       = False
+    | otherwise                    = True
     
 fromIndices :: IndexCoord -> Coord
 fromIndices (x, y) = Coord (chr $ 97 + x) (y + 1)
 
 -- Returns a tuple containing the coordinate and the piece on a given coordinate
 -- if the coordinate is valid
-getSquare :: Board -> Coord -> Maybe CoordSquare
-getSquare board coord
-    | isNothing indices    = Nothing
-    | otherwise            = Just (coord, board !! r !! f)
-    where indices = toIndices coord
-          (f, r)  = fromJust indices
+getSquare :: Board -> Coord -> CoordSquare
+getSquare board coord = (coord, board !! r !! f)
+    where (f, r) = toIndices coord
 
 replaceSquare :: IndexCoord -> Square -> Board -> Board
 replaceSquare (f, r) sq board = take r board ++ newRow : drop (r+1) board
@@ -63,6 +62,14 @@ opponent :: Player -> Player
 opponent player = case player of
                White -> Black
                Black -> White
+               
+stringToCoord :: String -> Coord
+stringToCoord (file : rank : _) = (Coord file (ord rank - 48))
+
+stringToMove :: String -> Move
+stringToMove (fromFile : fromRank : toFile : toRank : _) = (Move from to Nothing)
+    where from = (Coord fromFile (ord fromRank - 48))
+          to   = (Coord toFile (ord toRank - 48))
                
 -- Move operations
 
@@ -108,16 +115,15 @@ directionalVector board coord dir = recurse [] coord transform
     where transform = directionalTransform dir
           recurse :: [CoordSquare] -> Coord -> (Coord -> Coord) -> [CoordSquare]
           recurse coords thisCoord transform
-              | isNothing square = reverse coords
-              | otherwise        = recurse (fromJust square : coords) nextCoord transform
+              | not $ isValidCoord nextCoord = reverse coords
+              | otherwise                    = recurse (getSquare board nextCoord : coords) nextCoord transform
               where nextCoord = transform thisCoord
-                    square    = getSquare board nextCoord
                     
 -- Returns a list of squares that are a knight's move from the given coordinate.
 -- Off-board vectors are filtered from the list.
 knightVectors :: Board -> Coord -> [CoordSquare]
-knightVectors board coord = map fromJust moves
-    where moves = filter isJust $ getSquare board <$> (knightTransforms <*> pure coord)
+knightVectors board coord = getSquare board <$> filter isValidCoord coords
+    where coords = knightTransforms <*> pure coord
 
 -- Returns a list of directional squares consisting empty squares, terminating
 -- on the first non-empty square or the edge of the board.  For opponent pieces,
@@ -254,9 +260,9 @@ isInCheck player board = or (map testKingCapture moves)
                                            
 applyMove :: Board -> Move -> Board
 applyMove board (Move from to _) = replaceFrom . replaceTo $ board
-    where (_, piece)  = fromJust $ getSquare board from
-          fromI       = fromJust $ toIndices from
-          toI         = fromJust $ toIndices to
+    where (_, piece)  = getSquare board from
+          fromI       = toIndices from
+          toI         = toIndices to
           replaceFrom = replaceSquare fromI '.'
           replaceTo   = replaceSquare toI piece
                                            
@@ -267,3 +273,5 @@ legalMoves player board = filter (notInCheck board) (allMoves player board)
     where notInCheck :: Board -> Move -> Bool
           notInCheck board move = not $ isInCheck player $ applyMove board move
           
+newGame :: Game
+newGame = Game _START_BOARD_ BlacksMove Nothing

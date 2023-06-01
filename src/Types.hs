@@ -40,12 +40,12 @@ data Direction = DirUpLeft | DirUp | DirUpRight | DirRight |
                  DirDownRight | DirDown | DirDownLeft | DirLeft
     deriving (Show, Eq)
     
-data GameState = WhiteWon | BlackWon | Tie | InProgress
+data GameState = WhitesMove | BlacksMove | WhiteWon | BlackWon | Tie 
 
 data Game = Game { 
-    board :: Board
-    , state :: GameState
-    , lastMove :: Move       -- Necessary for stateful en-passant moves
+    board      :: Board
+    , state    :: GameState
+    , lastMove :: Maybe Move       -- Necessary for stateful en-passant moves
 }
 
 _FILES_ = ['a'..'h']
@@ -55,15 +55,15 @@ _RANKS_ = [1..8]
 -- rank order (i.e. White's pieces are in the first and second Strings,
 -- with Black's pieces in Strings 6 and 7).
 
-_START_GAME_ :: [String]
-_START_GAME_ = reverse [   
-                   "rnbqkbnr"
-                 , "pppppppp"
-                 , "........"
-                 , "........"
-                 , "........"
-                 , "........"
-                 , "PPPPPPPP"
-                 , "RNBQKBNR"
-               ]
+_START_BOARD_ :: [String]
+_START_BOARD_ = reverse [   
+                    "rnbqkbnr"
+                  , "pppppppp"
+                  , "........"
+                  , "........"
+                  , "........"
+                  , "........"
+                  , "PPPPPPPP"
+                  , "RNBQKBNR"
+                ]
                
