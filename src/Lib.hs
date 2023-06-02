@@ -2,6 +2,7 @@ module Lib where
 
 import Data.Char
 import Data.List
+import qualified Data.Map as Map
 import Data.Maybe
 
 import Types
@@ -63,14 +64,6 @@ opponent player = case player of
                White -> Black
                Black -> White
                
-stringToCoord :: String -> Coord
-stringToCoord (file : rank : _) = (Coord file (ord rank - 48))
-
-stringToMove :: String -> Move
-stringToMove (fromFile : fromRank : toFile : toRank : _) = (Move from to Nothing)
-    where from = (Coord fromFile (ord fromRank - 48))
-          to   = (Coord toFile (ord toRank - 48))
-               
 -- Move operations
 
 down :: Coord -> Coord
@@ -131,11 +124,12 @@ knightVectors board coord = getSquare board <$> filter isValidCoord coords
 validMoveVector :: Player -> Board -> Coord -> Direction-> [Move]
 validMoveVector player board coord dir = iterate candidates []
     where candidates = directionalVector board coord dir
+          (_, piece) = getSquare board coord
           iterate :: [CoordSquare] -> [Move] -> [Move]
           iterate [] moves                        = moves
           iterate ((c,sq):remain) moves 
-              | isEmpty sq                        = (Move coord c Nothing)   : (iterate remain moves)
-              | isOpponent player sq              = (Move coord c (Just sq)) : moves
+              | isEmpty sq                        = (Move piece coord c Nothing [] "")   : (iterate remain moves)
+              | isOpponent player sq              = (Move piece coord c (Just sq) [] "") : moves
               | otherwise                         = moves
               
 validMoves :: Player -> Board -> Coord -> [Direction] -> [[Move]]
@@ -164,10 +158,11 @@ pawnCaptures player board coord = filter (isOpponent player . square) possibleCa
 validPawnMoves :: Player -> Board -> Coord -> [Move]
 validPawnMoves player board coord = (convertMove <$> pawnMoves player board coord) ++
                                     (convertCapture <$> pawnCaptures player board coord)
-    where convertMove :: CoordSquare -> Move
-          convertMove (c,s) = (Move coord c Nothing)
+    where (_, piece) = getSquare board coord
+          convertMove :: CoordSquare -> Move
+          convertMove (c,s) = (Move piece coord c Nothing [] "")
           convertCapture :: CoordSquare -> Move
-          convertCapture (c,s) = (Move coord c (Just s))
+          convertCapture (c,s) = (Move piece coord c (Just s) [] "")
 
 -- Rook
           
@@ -181,11 +176,12 @@ validRookMoves player board coord = concat $ validMoves player board coord rookD
 
 validKnightMoves :: Player -> Board -> Coord -> [Move]
 validKnightMoves player board coord = foldr convertMove [] candidates 
-    where candidates = knightVectors board coord
+    where (_, piece) = getSquare board coord
+          candidates = knightVectors board coord
           convertMove :: CoordSquare -> [Move] -> [Move]
-          convertMove (c, '.') moves = (Move coord c Nothing) : moves
+          convertMove (c, '.') moves = (Move piece coord c Nothing [] "") : moves
           convertMove (c, p) moves   = if isOpponent player p then
-                                           (Move coord c (Just p)) : moves
+                                           (Move piece coord c (Just p) [] "") : moves
                                        else
                                            moves
 
@@ -224,8 +220,8 @@ iterateBoard :: (CoordSquare -> a -> a) -> a -> Board -> a
 iterateBoard f accum board = foldr f accum list
     where list = concat $ iterateRow <$> zip [0..7] board
     
-allMoves :: Player -> Board -> [Move]
-allMoves player board = concat $ iterateBoard f [] board
+potentialMoves :: Player -> Board -> [Move]
+potentialMoves player board = concat $ iterateBoard f [] board
     where f :: CoordSquare -> [[Move]] -> [[Move]]
           f (c, s) acc = if isMy player s then
                               case toLower s of 
@@ -252,26 +248,90 @@ kingCoord player board = iterateBoard f Nothing board
                             
 isInCheck :: Player -> Board -> Bool
 isInCheck player board = or (map testKingCapture moves)
-    where moves = allMoves (opponent player) board
+    where moves = potentialMoves (opponent player) board
           testKingCapture :: Move -> Bool
-          testKingCapture (Move _ _ cap) = if (isJust cap) && 
-                                              ((toLower (fromJust cap)) == 'k') then True
-                                           else False
+          testKingCapture (Move _ _ _ cap _ _) = if (isJust cap) && ((toLower (fromJust cap)) == 'k') then True
+                                                 else False
                                            
-applyMove :: Board -> Move -> Board
-applyMove board (Move from to _) = replaceFrom . replaceTo $ board
-    where (_, piece)  = getSquare board from
-          fromI       = toIndices from
+isPawnMove :: Move -> Bool
+isPawnMove move = (toUpper $ movePiece move) == 'P'
+
+applyMoveToBoard :: Board -> Move -> Board
+applyMoveToBoard board (Move piece from to _ _ _) = replaceFrom . replaceTo $ board
+    where fromI       = toIndices from
           toI         = toIndices to
           replaceFrom = replaceSquare fromI '.'
           replaceTo   = replaceSquare toI piece
                                            
--- legalMoves prunes the move list generated by allMoves to remove those that leave
+-- legalMoves prunes the move list generated by potentialMoves to remove those that leave
 -- or place the player's king in check
-legalMoves :: Player -> Board -> [Move]
-legalMoves player board = filter (notInCheck board) (allMoves player board)
+legalMoves :: Player -> Board -> [Move] 
+legalMoves player board = filter (notInCheck board) (potentialMoves player board)
     where notInCheck :: Board -> Move -> Bool
-          notInCheck board move = not $ isInCheck player $ applyMove board move
+          notInCheck board move = not $ isInCheck player $ applyMoveToBoard board move
           
-newGame :: Game
-newGame = Game _START_BOARD_ BlacksMove Nothing
+moveToMapKey :: Move -> String
+moveToMapKey (Move piece _ to _ _ _) = piece : coordToString to
+
+-- need to ensure moves are unique.  if there are duplicates they need to be
+-- qualified for PGN notation
+moveMapping :: [Move] -> Map.Map String [Coord]
+moveMapping [] = Map.empty
+moveMapping (move:remaining) = Map.unionWith (++) (moveMapping remaining) 
+                               (Map.singleton (moveToMapKey move) [moveFrom move])
+          
+-- fill out the moveDups field for moves that have duplicates. this is a two
+-- pass process - first all the moves are put into a Map, then the map is 
+-- checked for duplicates and the accumulated coords are added to each
+-- duplicate move.
+identifyDuplicateMoves :: [Move] -> [Move]
+identifyDuplicateMoves inMoves = foldr worker [] inMoves
+    where moveMap = moveMapping inMoves
+          worker :: Move -> [Move] -> [Move]
+          worker move moves = if length list > 1 && not (isPawnMove move) then
+                                  move { moveDups = list } : moves
+                              else
+                                  move : moves
+              where list = fromJust (Map.lookup (moveToMapKey move) moveMap)
+              
+-- given a list of coords and my coord, return the unique qualifier needed for
+-- PGN notation.  precedence is file, then rank, then the full coord
+getQualifier :: [Coord] -> Coord -> String
+getQualifier coordList myCoord 
+    | length files == length coordList  = [file myCoord]
+    | length ranks == length coordList  = [chr ((rank myCoord) + 48)]
+    | otherwise                         = coordToString myCoord
+    where files = nub $ head . coordToString <$> coordList
+          ranks = nub $ tail . coordToString <$> coordList
+          
+pawnToPGN :: Move -> String
+pawnToPGN (Move piece from to capture dups _)
+    | isJust capture   = file from : 'x' : coordToString to
+    | otherwise        = coordToString to
+    
+qualifiedPiece :: Move -> String
+qualifiedPiece move = if length dups > 0 then
+                          piece : (getQualifier dups from)
+                      else
+                          [piece]
+    where piece = toUpper $ movePiece move
+          dups = moveDups move
+          from = moveFrom move
+          
+movesToPGN :: [Move] -> [Move]
+movesToPGN moves = map addPGN moves
+    where moveToPGN :: Move -> String
+          moveToPGN move
+              | isPawnMove move           = pawnToPGN move
+              | isJust (moveCapture move) = qualifiedPiece move ++ "x" ++ (coordToString $ moveTo move)
+              | otherwise                 = qualifiedPiece move ++ (coordToString $ moveTo move)
+          addPGN :: Move -> Move
+          addPGN move = move { movePGN = moveToPGN move }
+              
+applyMove :: Game -> Move -> Game
+applyMove (Game board state lastMove) move = (Game nextBoard nextState (Just move))
+    where (player, nextPlayer, nextState) = case state of
+                                            WhitesMove -> (White, Black, BlacksMove)
+                                            BlacksMove -> (Black, White, WhitesMove)
+          nextBoard = applyMoveToBoard board move
+         

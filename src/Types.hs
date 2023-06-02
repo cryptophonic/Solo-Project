@@ -19,20 +19,23 @@ type Board = [Row]
 -- any valid coord + what's at that coord
 type CoordSquare = (Coord, Square)
 
-data Move = Move Coord Coord (Maybe Square)
+-- move = from, to, maybe capture
+data Move = Move {
+      movePiece :: Square
+    , moveFrom :: Coord 
+    , moveTo :: Coord 
+    , moveCapture :: (Maybe Square)
+    , moveDups :: [Coord]
+    , movePGN :: String
+}
 
 moveToString :: Move -> String
-moveToString (Move from to capture) = coordToString from ++ "->" ++ coordToString to ++ cap
-    where cap = if isNothing capture then 
-                   "" 
-               else 
-                   " (" ++ [fromJust capture] ++ ")"
-
+moveToString (Move _ from to _ _ pgn) = pgn ++ "(" ++ (coordToString from) ++ " " 
+    ++ (coordToString to) ++ ")"
+                   
 instance Show Move where
     show m = moveToString m
-
-type MoveList = (Square, [Move])
-
+    
 data Player = Black | White
     deriving Eq
 
@@ -59,11 +62,13 @@ _START_BOARD_ :: [String]
 _START_BOARD_ = reverse [   
                     "rnbqkbnr"
                   , "pppppppp"
-                  , "........"
-                  , "........"
-                  , "........"
-                  , "........"
-                  , "PPPPPPPP"
-                  , "RNBQKBNR"
+                  , "Q.Q....."
+                  , "......R."
+                  , "Q...N..."
+                  , "..r....R"
+                  , "PPPPPPP."
+                  , ".NBQKB.."
                 ]
                
+newGame :: Game
+newGame = Game _START_BOARD_ WhitesMove Nothing
