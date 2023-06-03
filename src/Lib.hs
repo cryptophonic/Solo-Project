@@ -128,8 +128,8 @@ validMoveVector player board coord dir = iterate candidates []
           iterate :: [CoordSquare] -> [Move] -> [Move]
           iterate [] moves                        = moves
           iterate ((c,sq):remain) moves 
-              | isEmpty sq                        = (Move piece coord c Nothing [] "")   : (iterate remain moves)
-              | isOpponent player sq              = (Move piece coord c (Just sq) [] "") : moves
+              | isEmpty sq                        = (Move piece coord c Nothing Nothing [] "")   : (iterate remain moves)
+              | isOpponent player sq              = (Move piece coord c (Just sq) Nothing [] "") : moves
               | otherwise                         = moves
               
 validMoves :: Player -> Board -> Coord -> [Direction] -> [[Move]]
@@ -156,13 +156,34 @@ pawnCaptures player board coord = filter (isOpponent player . square) possibleCa
           possibleCaptures = concat $ take 1 . directionalVector board coord <$> dirs
           
 validPawnMoves :: Player -> Board -> Coord -> [Move]
-validPawnMoves player board coord = (convertMove <$> pawnMoves player board coord) ++
-                                    (convertCapture <$> pawnCaptures player board coord)
+validPawnMoves player board coord = foldr convertMove [] (pawnMoves player board coord) ++
+                                    foldr convertCapture [] (pawnCaptures player board coord)
     where (_, piece) = getSquare board coord
-          convertMove :: CoordSquare -> Move
-          convertMove (c,s) = (Move piece coord c Nothing [] "")
-          convertCapture :: CoordSquare -> Move
-          convertCapture (c,s) = (Move piece coord c (Just s) [] "")
+          convertMove :: CoordSquare -> [Move] -> [Move]
+          convertMove (c@(Coord _ rank),s) moveList
+              -- pawn promotions
+              | player == White && rank == 8  = moveList ++ [(Move piece coord c Nothing (Just 'R') [] ""),
+                                                 (Move piece coord c Nothing (Just 'N') [] ""),
+                                                 (Move piece coord c Nothing (Just 'B') [] ""),
+                                                 (Move piece coord c Nothing (Just 'Q') [] "")]
+              | player == Black && rank == 1  = moveList ++ [(Move piece coord c Nothing (Just 'r') [] ""),
+                                                 (Move piece coord c Nothing (Just 'n') [] ""),
+                                                 (Move piece coord c Nothing (Just 'b') [] ""),
+                                                 (Move piece coord c Nothing (Just 'q') [] "")]
+              | otherwise                     = moveList ++ [(Move piece coord c Nothing Nothing [] "")]
+          convertCapture :: CoordSquare -> [Move] -> [Move]
+          convertCapture (c@(Coord _ rank),s) moveList
+              -- pawn promotions
+              | player == White && rank == 8  = moveList ++ [(Move piece coord c (Just s) (Just 'R') [] ""),
+                                                 (Move piece coord c (Just s) (Just 'N') [] ""),
+                                                 (Move piece coord c (Just s) (Just 'B') [] ""),
+                                                 (Move piece coord c (Just s) (Just 'Q') [] "")]
+              | player == Black && rank == 1  = moveList ++ [(Move piece coord c (Just s) (Just 'r') [] ""),
+                                                 (Move piece coord c (Just s) (Just 'n') [] ""),
+                                                 (Move piece coord c (Just s) (Just 'b') [] ""),
+                                                 (Move piece coord c (Just s) (Just 'q') [] "")]
+              -- en passant (can only be a capture)
+              | otherwise                     = moveList ++ [(Move piece coord c (Just s) Nothing [] "")]
 
 -- Rook
           
@@ -179,9 +200,9 @@ validKnightMoves player board coord = foldr convertMove [] candidates
     where (_, piece) = getSquare board coord
           candidates = knightVectors board coord
           convertMove :: CoordSquare -> [Move] -> [Move]
-          convertMove (c, '.') moves = (Move piece coord c Nothing [] "") : moves
+          convertMove (c, '.') moves = (Move piece coord c Nothing Nothing [] "") : moves
           convertMove (c, p) moves   = if isOpponent player p then
-                                           (Move piece coord c (Just p) [] "") : moves
+                                           (Move piece coord c (Just p) Nothing [] "") : moves
                                        else
                                            moves
 
@@ -250,28 +271,36 @@ isInCheck :: Player -> Board -> Bool
 isInCheck player board = or (map testKingCapture moves)
     where moves = potentialMoves (opponent player) board
           testKingCapture :: Move -> Bool
-          testKingCapture (Move _ _ _ cap _ _) = if (isJust cap) && ((toLower (fromJust cap)) == 'k') then True
+          testKingCapture (Move _ _ _ cap _ _ _) = if (isJust cap) && ((toLower (fromJust cap)) == 'k') then True
                                                  else False
                                            
 isPawnMove :: Move -> Bool
 isPawnMove move = (toUpper $ movePiece move) == 'P'
 
 applyMoveToBoard :: Board -> Move -> Board
-applyMoveToBoard board (Move piece from to _ _ _) = replaceFrom . replaceTo $ board
-    where fromI       = toIndices from
+applyMoveToBoard board (Move piece from to _ promote _ _) = replaceFrom . replaceTo $ board
+    where p = if isJust promote then
+              fromJust promote
+          else 
+              piece
+          fromI       = toIndices from
           toI         = toIndices to
           replaceFrom = replaceSquare fromI '.'
-          replaceTo   = replaceSquare toI piece
+          replaceTo   = replaceSquare toI p
                                            
 -- legalMoves prunes the move list generated by potentialMoves to remove those that leave
 -- or place the player's king in check
-legalMoves :: Player -> Board -> [Move] 
-legalMoves player board = filter (notInCheck board) (potentialMoves player board)
-    where notInCheck :: Board -> Move -> Bool
-          notInCheck board move = not $ isInCheck player $ applyMoveToBoard board move
+legalMoves :: Game -> [Move] 
+legalMoves (Game board state _)
+    | state == WhitesMove = filter (notInCheck White board) (potentialMoves White board)
+    | state == BlacksMove = filter (notInCheck Black board) (potentialMoves Black board)
+    | otherwise           = []
+    where 
+          notInCheck :: Player -> Board -> Move -> Bool
+          notInCheck player board move = not $ isInCheck player $ applyMoveToBoard board move
           
 moveToMapKey :: Move -> String
-moveToMapKey (Move piece _ to _ _ _) = piece : coordToString to
+moveToMapKey (Move piece _ to _ _ _ _) = piece : coordToString to
 
 -- need to ensure moves are unique.  if there are duplicates they need to be
 -- qualified for PGN notation
@@ -283,7 +312,7 @@ moveMapping (move:remaining) = Map.unionWith (++) (moveMapping remaining)
 -- fill out the moveDups field for moves that have duplicates. this is a two
 -- pass process - first all the moves are put into a Map, then the map is 
 -- checked for duplicates and the accumulated coords are added to each
--- duplicate move.
+-- duplicate move for use in qualifying the pgn notation.
 identifyDuplicateMoves :: [Move] -> [Move]
 identifyDuplicateMoves inMoves = foldr worker [] inMoves
     where moveMap = moveMapping inMoves
@@ -304,10 +333,15 @@ getQualifier coordList myCoord
     where files = nub $ head . coordToString <$> coordList
           ranks = nub $ tail . coordToString <$> coordList
           
+appendPawnPromotion :: Move -> String -> String
+appendPawnPromotion (Move _ _ _ _ promote _ _) str
+    | isJust promote   = str ++ "=" ++ [fromJust promote]
+    | otherwise        = str
+          
 pawnToPGN :: Move -> String
-pawnToPGN (Move piece from to capture dups _)
-    | isJust capture   = file from : 'x' : coordToString to
-    | otherwise        = coordToString to
+pawnToPGN move@(Move _ from to capture _ _ _)
+    | isJust capture   = appendPawnPromotion move $ file from : 'x' : coordToString to
+    | otherwise        = appendPawnPromotion move $ coordToString to
     
 qualifiedPiece :: Move -> String
 qualifiedPiece move = if length dups > 0 then
@@ -319,7 +353,7 @@ qualifiedPiece move = if length dups > 0 then
           from = moveFrom move
           
 movesToPGN :: [Move] -> [Move]
-movesToPGN moves = map addPGN moves
+movesToPGN moves = map addPGN $ identifyDuplicateMoves moves
     where moveToPGN :: Move -> String
           moveToPGN move
               | isPawnMove move           = pawnToPGN move
@@ -328,10 +362,20 @@ movesToPGN moves = map addPGN moves
           addPGN :: Move -> Move
           addPGN move = move { movePGN = moveToPGN move }
               
-applyMove :: Game -> Move -> Game
-applyMove (Game board state lastMove) move = (Game nextBoard nextState (Just move))
+applyMove :: Maybe Game -> String -> Maybe Game
+applyMove Nothing _                                   = Nothing
+applyMove (Just game@(Game board state lastMove)) pgn = if isJust move then
+                                                            Just (Game (applyMoveToBoard board (fromJust move)) nextState move)
+                                                        else 
+                                                            Nothing
     where (player, nextPlayer, nextState) = case state of
                                             WhitesMove -> (White, Black, BlacksMove)
                                             BlacksMove -> (Black, White, WhitesMove)
-          nextBoard = applyMoveToBoard board move
-         
+          pgnMoves = movesToPGN $ legalMoves game
+          move = foldr matchMove Nothing pgnMoves
+          matchMove :: Move -> Maybe Move -> Maybe Move
+          matchMove _ (Just m)                           = Just m
+          matchMove m@(Move _ _ _ _ _ _ movePgn) Nothing = if pgn == movePgn then
+                                                               Just m
+                                                           else
+                                                               Nothing

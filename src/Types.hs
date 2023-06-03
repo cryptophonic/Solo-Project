@@ -24,14 +24,16 @@ data Move = Move {
       movePiece :: Square
     , moveFrom :: Coord 
     , moveTo :: Coord 
-    , moveCapture :: (Maybe Square)
+    , moveCapture :: Maybe Square
+    , movePromote :: Maybe Square
     , moveDups :: [Coord]
     , movePGN :: String
 }
 
 moveToString :: Move -> String
-moveToString (Move _ from to _ _ pgn) = pgn ++ "(" ++ (coordToString from) ++ " " 
-    ++ (coordToString to) ++ ")"
+moveToString (Move _ from to _ _ _ pgn) = pgn 
+--    ++ "(" ++ (coordToString from) ++ "-" 
+--    ++ (coordToString to) ++ ")"
                    
 instance Show Move where
     show m = moveToString m
@@ -44,6 +46,7 @@ data Direction = DirUpLeft | DirUp | DirUpRight | DirRight |
     deriving (Show, Eq)
     
 data GameState = WhitesMove | BlacksMove | WhiteWon | BlackWon | Tie 
+    deriving Eq
 
 data Game = Game { 
     board      :: Board
@@ -62,13 +65,13 @@ _START_BOARD_ :: [String]
 _START_BOARD_ = reverse [   
                     "rnbqkbnr"
                   , "pppppppp"
-                  , "Q.Q....."
-                  , "......R."
-                  , "Q...N..."
-                  , "..r....R"
-                  , "PPPPPPP."
-                  , ".NBQKB.."
+                  , "........"
+                  , "........"
+                  , "........"
+                  , "........"
+                  , "PPPPPPPP"
+                  , "RNBQKBNR"
                 ]
                
-newGame :: Game
-newGame = Game _START_BOARD_ WhitesMove Nothing
+newGame :: Maybe Game
+newGame = Just (Game _START_BOARD_ WhitesMove Nothing)
