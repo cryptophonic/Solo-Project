@@ -43,10 +43,13 @@ printGame (Just game) = case gameState of
                             putStrLn "Black's move"
                             putStrLn (show moves)
                         WhiteWon -> do
+                            mapM (putStrLn . intersperse ' ') $ reverse gameBoard
                             putStrLn "Game over. White won!"
                         BlackWon -> do
+                            mapM (putStrLn . intersperse ' ') $ reverse gameBoard
                             putStrLn "Game over. Black won!"
                         Tie -> do
+                            mapM (putStrLn . intersperse ' ') $ reverse gameBoard
                             putStrLn "Game over. Tie."
     where gameState = state game
           boardWithRanks = concat <$> transpose [(flip (++) "|" . show)  <$> [1..8], board game, ((++) "|" . show) <$> [1..8]]
@@ -54,15 +57,18 @@ printGame (Just game) = case gameState of
           moves = movesToPGN $ legalMoves game
           
 gameLoop :: Maybe Game -> IO ()
-gameLoop game = do
+gameLoop game@(Just (Game _ state _)) = do
     printGame game
-    putStrLn "Enter your move: "
-    move <- getLine
-    let newGame = applyMove game move
-    if isJust newGame then do
-        gameLoop newGame
-    else do
-        gameLoop game
+    if elem state [WhitesMove, BlacksMove] then do
+        putStrLn "Enter your move: "
+        move <- getLine
+        let newGame = applyMove game move
+        if isJust newGame then
+            gameLoop newGame
+        else do
+            gameLoop game
+    else
+        return ()
           
 playGame :: IO ()
 playGame = do 

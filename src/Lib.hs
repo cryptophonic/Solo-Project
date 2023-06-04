@@ -361,10 +361,29 @@ movesToPGN moves = map addPGN $ identifyDuplicateMoves moves
               | otherwise                 = qualifiedPiece move ++ (coordToString $ moveTo move)
           addPGN :: Move -> Move
           addPGN move = move { movePGN = moveToPGN move }
+          
+checkEndOfGame :: Maybe Game -> Maybe Game
+checkEndOfGame Nothing = Nothing
+checkEndOfGame (Just game@(Game board state lastMove)) = if (length $ legalMoves game) == 0 then
+                                                             case state of 
+                                                             WhitesMove -> if isInCheck White board then
+                                                                               Just (Game board BlackWon lastMove)
+                                                                           else
+                                                                               Just (Game board Tie lastMove)
+                                                             BlacksMove -> if isInCheck Black board then
+                                                                               Just (Game board WhiteWon lastMove)
+                                                                           else
+                                                                               Just (Game board Tie lastMove)
+                                                         else
+                                                             Just game
               
 applyMove :: Maybe Game -> String -> Maybe Game
 applyMove Nothing _                                   = Nothing
-applyMove (Just game@(Game board state lastMove)) pgn = if isJust move then
+-- we don't apply moves to ended games
+applyMove (Just game@(Game _ WhiteWon _)) _           = Just game
+applyMove (Just game@(Game _ BlackWon _)) _           = Just game
+applyMove (Just game@(Game _ Tie _)) _                = Just game
+applyMove (Just game@(Game board state lastMove)) pgn = checkEndOfGame $ if isJust move then
                                                             Just (Game (applyMoveToBoard board (fromJust move)) nextState move)
                                                         else 
                                                             Nothing
