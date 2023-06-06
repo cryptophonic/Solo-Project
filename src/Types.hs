@@ -79,7 +79,7 @@ _START_BOARD_ = reverse [
                   , "pppppppp"
                   , "........"
                   , "........"
-                  , "...p...."
+                  , "........"
                   , "........"
                   , "PPPPPPPP"
                   , "RNBQKBNR"
