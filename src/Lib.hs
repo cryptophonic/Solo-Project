@@ -59,8 +59,8 @@ isMy Black square = isLower square
 isEmpty :: Square -> Bool
 isEmpty square = square == '.'
 
-opponent :: Player -> Player
-opponent player = case player of
+opponentOf :: Player -> Player
+opponentOf player = case player of
                White -> Black
                Black -> White
                
@@ -173,7 +173,7 @@ validPawnMoves player board coord = foldr convertMove [] (pawnMoves player board
               | otherwise                     = moveList ++ [(Move piece coord c Nothing Nothing [] "")]
           convertCapture :: CoordSquare -> [Move] -> [Move]
           convertCapture (c@(Coord _ rank),s) moveList
-              -- pawn promotions
+              -- pawn promotions on capture
               | player == White && rank == 8  = moveList ++ [(Move piece coord c (Just s) (Just 'R') [] ""),
                                                  (Move piece coord c (Just s) (Just 'N') [] ""),
                                                  (Move piece coord c (Just s) (Just 'B') [] ""),
@@ -230,6 +230,93 @@ kingDirs = [DirUp, DirUpRight, DirRight, DirDownRight, DirDown, DirDownLeft, Dir
 validKingMoves :: Player -> Board -> Coord -> [Move]
 validKingMoves player board coord = concat $ take 1 <$> validMoves player board coord queenDirs
 
+-- helper functions
+
+kingCoord :: Player -> Board -> Coord
+kingCoord player board = fromJust $ iterateBoard f Nothing board
+    where kingPattern = case player of 
+              White -> 'K'
+              Black -> 'k'
+          f :: CoordSquare -> Maybe Coord -> Maybe Coord
+          f (c,s) acc = if s == kingPattern then
+                            Just c
+                        else 
+                            acc
+                            
+isInCheck :: Player -> Board -> Bool
+isInCheck player board = or (map testKingCapture moves)
+    where moves = potentialMoves (opponentOf player) board
+          testKingCapture :: Move -> Bool
+          testKingCapture (Move _ _ _ cap _ _ _) = if (isJust cap) && ((toLower (fromJust cap)) == 'k') then True
+                                                   else False
+                                                 
+isEmptyAndNotAttacked :: Player -> Board -> Coord -> Bool
+isEmptyAndNotAttacked player board coord = (piece == '.') && not (isInCheck player newBoard)
+    where (_, piece) = getSquare board coord
+          kc = toIndices $ kingCoord player board
+          kingPattern = case player of 
+              White -> 'K'
+              Black -> 'k'
+          eraseKing = replaceSquare kc '.'
+          placeKing = replaceSquare (toIndices coord) kingPattern
+          newBoard = eraseKing . placeKing $ board
+          
+isPawnMove :: Move -> Bool
+isPawnMove move = (toUpper $ movePiece move) == 'P'
+
+isKingMove :: Move -> Bool
+isKingMove move = (toUpper $ movePiece move) == 'K'
+
+isRookMove :: Move -> Bool
+isRookMove move = (toUpper $ movePiece move) == 'R'
+
+-- Castle logic
+
+-- castle rules: king is not in check, neither the king destination square nor the
+-- square it jumps over is attacked, and neither the king nor the rook has been moved
+-- yet in the game.
+
+canCastleKingSide :: Player -> Game -> Bool
+canCastleKingSide player (Game board _ (CastlingState wck _ bck _) _) = canCastle && notInCheck && test1 && test2
+    where (rank, canCastle) = case player of 
+                              White -> (1, wck)
+                              Black -> (8, bck)
+          notInCheck = not $ isInCheck player board
+          test1 = isEmptyAndNotAttacked player board $ Coord 'f' rank
+          test2 = isEmptyAndNotAttacked player board $ Coord 'g' rank
+
+canCastleQueenSide :: Player -> Game -> Bool
+canCastleQueenSide player (Game board _ (CastlingState _ wcq _ bcq) _) = canCastle && notInCheck && test1 && test2
+    where (rank, canCastle) = case player of 
+                              White -> (1, wcq)
+                              Black -> (8, bcq)
+          notInCheck = not $ isInCheck player board
+          test1 = isEmptyAndNotAttacked player board $ Coord 'd' rank
+          test2 = isEmptyAndNotAttacked player board $ Coord 'c' rank
+
+validCastleMoves :: Player -> Game -> [Move]
+validCastleMoves player game = kck ++ qck
+    where (kingPiece, rank) = case player of
+                              White -> ('K', 1)
+                              Black -> ('k', 8)
+          kck = if canCastleKingSide player game then
+                    [ Move kingPiece (Coord 'e' rank) (Coord 'g' rank) Nothing Nothing [] "O-O" ]
+                else 
+                    []
+          qck = if canCastleQueenSide player game then
+                    [ Move kingPiece (Coord 'e' rank) (Coord 'c' rank) Nothing Nothing [] "O-O-O" ]
+                else
+                    []
+          
+
+-- En passant logic
+
+-- en passant rules: on the next move, if a pawn advances two squares, if it passes the
+-- capturing square of an opposing pawn, the opposing pawn may capture it on the first
+-- square, on the next move only.
+validEnPassantMoves :: Player -> Game -> [Move]
+validEnPassantMoves player game = undefined
+
 -- Game logic
 
 iterateRow :: (Int, Row) -> [CoordSquare]
@@ -242,7 +329,7 @@ iterateBoard f accum board = foldr f accum list
     where list = concat $ iterateRow <$> zip [0..7] board
     
 potentialMoves :: Player -> Board -> [Move]
-potentialMoves player board = concat $ iterateBoard f [] board
+potentialMoves player board = (concat $ iterateBoard f [] board)
     where f :: CoordSquare -> [[Move]] -> [[Move]]
           f (c, s) acc = if isMy player s then
                               case toLower s of 
@@ -256,28 +343,31 @@ potentialMoves player board = concat $ iterateBoard f [] board
                           else 
                               acc
 
-kingCoord :: Player -> Board -> Maybe Coord
-kingCoord player board = iterateBoard f Nothing board
-    where kingPattern = case player of 
-              White -> 'K'
-              Black -> 'k'
-          f :: CoordSquare -> Maybe Coord -> Maybe Coord
-          f (c,s) acc = if s == kingPattern then
-                            Just c
-                        else 
-                            acc
+applyKingSideCastle :: Rank -> Board -> Board
+applyKingSideCastle rank board = raiseKing . placeKing . raiseRook . placeRook $ board
+    where (king, rook) = case rank of 
+                         1 -> ('K', 'R')
+                         8 -> ('k', 'r')
+          -- index coords
+          raiseKing = replaceSquare (4, rank-1) '.'
+          placeKing = replaceSquare (6, rank-1) king
+          raiseRook = replaceSquare (7, rank-1) '.'
+          placeRook = replaceSquare (5, rank-1) rook
+          
+applyQueenSideCastle :: Rank -> Board -> Board
+applyQueenSideCastle rank board = raiseKing . placeKing . raiseRook . placeRook $ board
+    where (king, rook) = case rank of 
+                         1 -> ('K', 'R')
+                         8 -> ('k', 'r')
+          -- index coords
+          raiseKing = replaceSquare (4, rank-1) '.'
+          placeKing = replaceSquare (2, rank-1) king
+          raiseRook = replaceSquare (0, rank-1) '.'
+          placeRook = replaceSquare (3, rank-1) rook
                             
-isInCheck :: Player -> Board -> Bool
-isInCheck player board = or (map testKingCapture moves)
-    where moves = potentialMoves (opponent player) board
-          testKingCapture :: Move -> Bool
-          testKingCapture (Move _ _ _ cap _ _ _) = if (isJust cap) && ((toLower (fromJust cap)) == 'k') then True
-                                                 else False
-                                           
-isPawnMove :: Move -> Bool
-isPawnMove move = (toUpper $ movePiece move) == 'P'
-
 applyMoveToBoard :: Board -> Move -> Board
+applyMoveToBoard board (Move _ (Coord _ rank) _ _ _ _ "O-O") = applyKingSideCastle rank board
+applyMoveToBoard board (Move _ (Coord _ rank) _ _ _ _ "O-O-O") = applyQueenSideCastle rank board
 applyMoveToBoard board (Move piece from to _ promote _ _) = replaceFrom . replaceTo $ board
     where p = if isJust promote then
               fromJust promote
@@ -285,15 +375,19 @@ applyMoveToBoard board (Move piece from to _ promote _ _) = replaceFrom . replac
               piece
           fromI       = toIndices from
           toI         = toIndices to
+          replaceFrom :: Board -> Board
           replaceFrom = replaceSquare fromI '.'
+          replaceTo :: Board -> Board
           replaceTo   = replaceSquare toI p
                                            
 -- legalMoves prunes the move list generated by potentialMoves to remove those that leave
 -- or place the player's king in check
 legalMoves :: Game -> [Move] 
-legalMoves (Game board state _)
-    | state == WhitesMove = filter (notInCheck White board) (potentialMoves White board)
-    | state == BlacksMove = filter (notInCheck Black board) (potentialMoves Black board)
+legalMoves game@(Game board state _ _)
+    | state == WhitesMove = filter (notInCheck White board) (potentialMoves White board) ++
+          validCastleMoves White game -- ++ validEnPassantMoves White game
+    | state == BlacksMove = filter (notInCheck Black board) (potentialMoves Black board) ++
+          validCastleMoves Black game -- ++ validEnPassantMoves Black game
     | otherwise           = []
     where 
           notInCheck :: Player -> Board -> Move -> Bool
@@ -356,6 +450,7 @@ movesToPGN :: [Move] -> [Move]
 movesToPGN moves = map addPGN $ identifyDuplicateMoves moves
     where moveToPGN :: Move -> String
           moveToPGN move
+              | length (movePGN move) > 0 = movePGN move
               | isPawnMove move           = pawnToPGN move
               | isJust (moveCapture move) = qualifiedPiece move ++ "x" ++ (coordToString $ moveTo move)
               | otherwise                 = qualifiedPiece move ++ (coordToString $ moveTo move)
@@ -364,34 +459,55 @@ movesToPGN moves = map addPGN $ identifyDuplicateMoves moves
           
 checkEndOfGame :: Maybe Game -> Maybe Game
 checkEndOfGame Nothing = Nothing
-checkEndOfGame (Just game@(Game board state lastMove)) = if (length $ legalMoves game) == 0 then
-                                                             case state of 
-                                                             WhitesMove -> if isInCheck White board then
-                                                                               Just (Game board BlackWon lastMove)
-                                                                           else
-                                                                               Just (Game board Tie lastMove)
-                                                             BlacksMove -> if isInCheck Black board then
-                                                                               Just (Game board WhiteWon lastMove)
-                                                                           else
-                                                                               Just (Game board Tie lastMove)
-                                                         else
-                                                             Just game
-              
+checkEndOfGame (Just game@(Game board state _ _)) = 
+    if (length $ legalMoves game) == 0 then
+        case state of 
+        WhitesMove -> if isInCheck White board then
+                          Just game { gameState = BlackWon }
+                      else
+                          Just game { gameState = Tie }
+        BlacksMove -> if isInCheck Black board then
+                          Just game { gameState = WhiteWon }
+                      else
+                          Just game { gameState = Tie }
+    else
+        Just game
+        
+nextCastleState :: Player -> Maybe Move -> CastlingState -> CastlingState
+nextCastleState _ Nothing cs = cs
+nextCastleState player move (CastlingState wck wcq bck bcq) = CastlingState {
+          whiteCastleKingSide  = wck && not (player == White && (km || kingsrook))
+        , whiteCastleQueenSide = wcq && not (player == White && (km || queensrook))
+        , blackCastleKingSide  = bck && not (player == Black && (km || kingsrook))
+        , blackCastleQueenSide = bcq && not (player == Black && (km || queensrook))
+    }
+    where m = fromJust move
+          (Coord file _) = moveFrom m
+          km = isKingMove m
+          kingsrook = isRookMove m && file == 'h'
+          queensrook = isRookMove m && file == 'a'
+
 applyMove :: Maybe Game -> String -> Maybe Game
-applyMove Nothing _                                   = Nothing
+applyMove Nothing _                                     = Nothing
 -- we don't apply moves to ended games
-applyMove (Just game@(Game _ WhiteWon _)) _           = Just game
-applyMove (Just game@(Game _ BlackWon _)) _           = Just game
-applyMove (Just game@(Game _ Tie _)) _                = Just game
-applyMove (Just game@(Game board state lastMove)) pgn = checkEndOfGame $ if isJust move then
-                                                            Just (Game (applyMoveToBoard board (fromJust move)) nextState move)
-                                                        else 
-                                                            Nothing
+applyMove (Just game@(Game _ WhiteWon _ _)) _           = Just game
+applyMove (Just game@(Game _ BlackWon _ _)) _           = Just game
+applyMove (Just game@(Game _ Tie _ _)) _                = Just game
+applyMove (Just game@(Game board state castleState lastMove)) pgn = checkEndOfGame $ 
+        if isJust move then
+            Just game {     gameBoard = applyMoveToBoard board (fromJust move)
+                          , gameState = nextState
+                          , castleEligibility = ncs
+                          , gameLastMove = move 
+                       }
+        else 
+            Nothing
     where (player, nextPlayer, nextState) = case state of
                                             WhitesMove -> (White, Black, BlacksMove)
                                             BlacksMove -> (Black, White, WhitesMove)
           pgnMoves = movesToPGN $ legalMoves game
           move = foldr matchMove Nothing pgnMoves
+          ncs = nextCastleState player move castleState
           matchMove :: Move -> Maybe Move -> Maybe Move
           matchMove _ (Just m)                           = Just m
           matchMove m@(Move _ _ _ _ _ _ movePgn) Nothing = if pgn == movePgn then

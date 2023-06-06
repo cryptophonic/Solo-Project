@@ -1,5 +1,6 @@
 module Types where
 
+import Data.Char
 import Data.Maybe
 
 type File = Char             -- File [a-h]
@@ -8,6 +9,9 @@ data Coord = Coord File Rank
 
 coordToString :: Coord -> String
 coordToString (Coord f r) = [f] ++ show r
+
+coordFromString :: String -> Coord
+coordFromString str = Coord (head str) (ord (head $ tail str) - 48)
 
 instance Show Coord where
     show c = show $ coordToString c
@@ -47,11 +51,19 @@ data Direction = DirUpLeft | DirUp | DirUpRight | DirRight |
     
 data GameState = WhitesMove | BlacksMove | WhiteWon | BlackWon | Tie 
     deriving Eq
+    
+data CastlingState = CastlingState {
+      whiteCastleKingSide       :: Bool
+    , whiteCastleQueenSide      :: Bool
+    , blackCastleKingSide       :: Bool
+    , blackCastleQueenSide      :: Bool
+}
 
 data Game = Game { 
-    board      :: Board
-    , state    :: GameState
-    , lastMove :: Maybe Move       -- Necessary for stateful en-passant moves
+    gameBoard                   :: Board
+    , gameState                 :: GameState
+    , castleEligibility         :: CastlingState
+    , gameLastMove              :: Maybe Move       -- Necessary for stateful en-passant moves
 }
 
 _FILES_ = ['a'..'h']
@@ -74,4 +86,5 @@ _START_BOARD_ = reverse [
                 ]
                
 newGame :: Maybe Game
-newGame = Just (Game _START_BOARD_ WhitesMove Nothing)
+newGame = Just (Game _START_BOARD_ WhitesMove castleState Nothing)
+    where castleState = (CastlingState True True True True)
