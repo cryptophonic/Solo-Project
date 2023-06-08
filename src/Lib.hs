@@ -27,7 +27,6 @@ fromIndices :: IndexCoord -> Coord
 fromIndices (x, y) = Coord (chr $ 97 + x) (y + 1)
 
 -- Returns a tuple containing the coordinate and the piece on a given coordinate
--- if the coordinate is valid
 getSquare :: Board -> Coord -> CoordSquare
 getSquare board coord = (coord, board !! r !! f)
     where (f, r) = toIndices coord
@@ -228,7 +227,7 @@ kingDirs :: [Direction]
 kingDirs = [DirUp, DirUpRight, DirRight, DirDownRight, DirDown, DirDownLeft, DirLeft, DirUpLeft]
 
 validKingMoves :: Player -> Board -> Coord -> [Move]
-validKingMoves player board coord = concat $ take 1 <$> validMoves player board coord queenDirs
+validKingMoves player board coord = concat $ take 1 <$> validMoves player board coord kingDirs
 
 -- helper functions
 
