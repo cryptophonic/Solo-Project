@@ -48,12 +48,12 @@ square :: CoordSquare -> Square
 square cs = snd cs
           
 isOpponent :: Player -> Square -> Bool
-isOpponent White square = isLower square
-isOpponent Black square = isUpper square
+isOpponent White = isLower
+isOpponent Black = isUpper
 
 isMy :: Player -> Square -> Bool
-isMy White square = isUpper square
-isMy Black square = isLower square
+isMy White = isUpper
+isMy Black = isLower
 
 isEmpty :: Square -> Bool
 isEmpty square = square == '.'
@@ -78,26 +78,27 @@ right :: Coord -> Coord
 right (Coord f r) = Coord (succ f) r  -- increase file
 
 directionalTransform :: Direction -> (Coord -> Coord)
-directionalTransform dir
-    | dir == DirUpLeft    = up . left
-    | dir == DirUp        = up
-    | dir == DirUpRight   = up . right
-    | dir == DirRight     = right
-    | dir == DirDownRight = down . right
-    | dir == DirDown      = down
-    | dir == DirDownLeft  = down . left
-    | dir == DirLeft      = left
+directionalTransform dir = case dir of
+    DirUpLeft    -> up . left
+    DirUp        -> up
+    DirUpRight   -> up . right
+    DirRight     -> right
+    DirDownRight -> down . right
+    DirDown      -> down
+    DirDownLeft  -> down . left
+    DirLeft      -> left
     
 knightTransforms :: [(Coord -> Coord)]
-knightTransforms = [ up . up . left
-                   , up . up . right
-                   , right . right . up
-                   , right . right . down
-                   , down . down . left
-                   , down . down . right
-                   , left . left . up
-                   , left . left . down
-                   ]
+knightTransforms = [ 
+      up . up . left
+    , up . up . right
+    , right . right . up
+    , right . right . down
+    , down . down . left
+    , down . down . right
+    , left . left . up
+    , left . left . down
+    ]
                     
 -- Returns a directional list of squares from the provided coordinate along
 -- the specified direction from that coordinate.  The list terminates when the
